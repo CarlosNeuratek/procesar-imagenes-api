@@ -8,14 +8,12 @@ from pydantic import BaseModel, Field, field_validator
 
 def _validate_email(value: str) -> str:
     # ponytail: custom validator instead of EmailStr so `admin@contadores` passes
-    # (no TLD). One '@', at least one '.' after it. Strict RFC deferred.
+    # (no TLD). One '@' and non-empty local/domain. Strict RFC deferred.
     if "@" not in value:
         raise ValueError("email must contain '@'")
     local, _, domain = value.partition("@")
     if not local or not domain:
         raise ValueError("email must have local and domain parts")
-    if "." not in domain:
-        raise ValueError("email domain must contain '.'")
     return value
 
 
