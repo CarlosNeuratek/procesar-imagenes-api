@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from .auth.models import User
+from .auth.rate_limit import LoginRateLimitMiddleware
 from .auth.router import router as auth_router
 from .auth.security import hash_password
 from .config import settings
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="contadores-api", version="0.1.0", lifespan=lifespan)
+app.add_middleware(LoginRateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
