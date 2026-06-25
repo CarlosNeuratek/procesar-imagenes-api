@@ -1,31 +1,49 @@
-"""Auth business logic. Hardcoded user for the mock slice."""
+"""Auth business logic — DB-backed bcrypt + opaque tokens."""
 from __future__ import annotations
 
-from ..config import settings
+from fastapi import HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from . import tokens
+from .models import User
+from .security import verify_password
 
 
-def _hardcoded_user() -> dict:
+def _user_public(user: User) -> dict:
     return {
-        "id": "u-admin-001",
-        "email": settings.admin_email,
-        "name": "Admin",
-        "role": "admin",
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "role": user.role,
     }
 
 
-def authenticate(email: str, password: str) -> dict | None:
-    if email == settings.admin_email and password == settings.admin_password:
-        return _hardcoded_user()
-    return None
-
-
-def login(email: str, password: str) -> dict | None:
-    user = authenticate(email, password)
+def authenticate(email: str, password: str, db: Session) -> User | None:
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
     if user is None:
         return None
-    return {"token": tokens.issue(user), "user": user}
+    if not verify_password(password, user.password_hash):
+        return None
+    return user
 
 
-def me(token: str) -> dict | None:
-    return tokens.resolve(token)
+def login(email: str, password: str, db: Session) -> dict:
+    user = authenticate(email, password, db)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+    token = tokens.issue(user, db)
+    return {"token": token, "user": _user_public(user)}
+
+
+def me(token: str, db: Session) -> dict:
+    user = tokens.resolve(token, db)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    return user
