@@ -22,6 +22,10 @@ os.environ.setdefault("ADMIN_PASSWORD", "admin123")
 @pytest.fixture(scope="session")
 def engine():
     from app.auth.models import AuthToken, User  # noqa: F401  (register tables)
+    from app.procesamiento.models import (  # noqa: F401  (register tables)
+        ConfigPrompt,
+        ProcesamientoImagen,
+    )
     from app.db import Base
 
     eng = create_engine(
@@ -66,6 +70,8 @@ def db(engine) -> Generator[Session, None, None]:
     s = Session_()
     s.execute(text("DELETE FROM auth_tokens"))
     s.execute(text("DELETE FROM users WHERE email != :email"), {"email": settings.admin_email})
+    s.execute(text("DELETE FROM procesamiento_imagenes"))
+    s.execute(text("DELETE FROM config_prompt"))
     s.commit()
     try:
         yield s

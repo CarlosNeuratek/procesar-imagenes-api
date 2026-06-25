@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from . import gemini_client
@@ -35,18 +35,30 @@ _current_threads: int = 0
 
 
 def claim_one_pending(db: Session) -> Optional[ProcesamientoImagen]:
-    """Atomic claim: SELECT next Pendiente + flip to Procesando in one tx."""
-    row = db.execute(
-        select(ProcesamientoImagen)
+    """Atomic claim: UPDATE one Pendiente → Procesando and RETURNING it.
+
+    ponytail: SQLite 3.35+ supports UPDATE ... RETURNING. We narrow the
+    target to the lowest-id Pendiente via a subquery so concurrent threads
+    claim different rows. SQLAlchemy serializes the UPDATE in SQLite WAL.
+    """
+    from sqlalchemy import select
+
+    subq = (
+        select(ProcesamientoImagen.id)
         .where(ProcesamientoImagen.estado == "Pendiente")
         .order_by(ProcesamientoImagen.id)
         .limit(1)
-    ).scalar_one_or_none()
-    if row is None:
-        return None
-    row.estado = "Procesando"
+        .scalar_subquery()
+    )
+    rows = db.execute(
+        update(ProcesamientoImagen)
+        .where(ProcesamientoImagen.id == subq)
+        .values(estado="Procesando")
+        .returning(ProcesamientoImagen)
+        .execution_options(synchronize_session=False)
+    ).all()
     db.commit()
-    return row
+    return rows[0][0] if rows else None
 
 
 def _read_prompt(db: Session) -> str:
