@@ -1,8 +1,8 @@
 """Auth business logic. Hardcoded user for the mock slice."""
 from __future__ import annotations
 
+from ..config import settings
 from . import tokens
-from .config_compat import settings  # local import avoids cycle on import-time
 
 
 def _hardcoded_user() -> dict:
