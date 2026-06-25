@@ -15,6 +15,7 @@ from .auth.router import router as auth_router
 from .auth.security import hash_password
 from .config import settings
 from .db import Base, SessionLocal, get_engine
+from .users.router import router as users_router
 
 logger = logging.getLogger("contadores.api")
 
@@ -50,6 +51,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_router)
+app.include_router(users_router)
 
 
 @app.get("/health", tags=["meta"])
