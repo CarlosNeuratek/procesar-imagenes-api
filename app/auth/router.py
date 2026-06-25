@@ -1,8 +1,10 @@
 """HTTP layer for /auth/* endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy.orm import Session
 
+from ..db import get_db
 from . import service
 from .schemas import LoginRequest, TokenResponse, UserPublic
 
@@ -10,28 +12,24 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest) -> TokenResponse:
-    result = service.login(payload.email, payload.password)
-    if result is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
-    return TokenResponse(**result)
+def login(
+    payload: LoginRequest,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    return TokenResponse(**service.login(payload.email, payload.password, db))
 
 
 @router.get("/me", response_model=UserPublic)
-def me(authorization: str | None = Header(default=None)) -> UserPublic:
-    if not authorization or not authorization.lower().startswith("bearer "):
+def me(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> UserPublic:
+    auth = request.headers.get("authorization")
+    if not auth or not auth.lower().startswith("bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing bearer token",
         )
-    token = authorization.split(" ", 1)[1].strip()
-    user = service.me(token)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        )
+    token = auth.split(" ", 1)[1].strip()
+    user = service.me(token, db)
     return UserPublic(**user)
