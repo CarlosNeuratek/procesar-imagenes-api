@@ -20,6 +20,8 @@ class Settings:
     cors_origins: list[str] = None  # type: ignore[assignment]
     admin_email: str = os.getenv("ADMIN_EMAIL", "admin@contadores")
     admin_password: str = os.getenv("ADMIN_PASSWORD", "admin123")
+    database_url: str = os.getenv("DATABASE_URL", "sqlite:///./contadores.db")
+    bcrypt_rounds: int = int(os.getenv("BCRYPT_ROUNDS", "12"))
 
     def __post_init__(self) -> None:
         # Frozen dataclass + list default — build via object.__setattr__.
