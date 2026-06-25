@@ -25,14 +25,16 @@ New deps: `sqlalchemy>=2.0`, `bcrypt>=4.0`.
 ## Run
 
 ```bash
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --workers 1 --port 8000
 ```
 
-**Run with a single worker.** Rate limiting is in-process, so multiple workers would each hold an independent bucket. Use `--workers 1` in production:
+For local dev with autoreload:
 
 ```bash
-uvicorn app.main:app --workers 1 --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --workers 1 --port 8000
 ```
+
+**Single-worker constraint.** Rate limiting is in-process, so multiple workers would each hold an independent bucket. The default above uses `--workers 1` to match the rate-limit guarantee. For production with multiple workers behind a load balancer, swap the in-process limiter for Redis (out of scope for this slice).
 
 Server starts on `http://localhost:8000`. Interactive docs at `/docs`.
 
