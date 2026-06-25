@@ -1,6 +1,6 @@
 # contadores-api
 
-FastAPI backend for the `contadores-ui` SPA. Real, DB-backed auth (bcrypt + opaque tokens in SQLite) with admin bootstrap, rate-limited login, and an admin-only `/users` surface.
+FastAPI backend for the `contadores-ui` SPA. Real, DB-backed auth (bcrypt + opaque tokens in SQLite) with admin bootstrap, rate-limited login, admin-only `/users` surface, and an embedded Gemini batch image-processing slice (`/api/config`, `/api/imagenes`, `/api/procesamiento`).
 
 ## Requirements
 
@@ -54,6 +54,13 @@ uv run pytest
 | `ADMIN_PASSWORD` | `admin123` | Initial password; rotate after first login. |
 | `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated allowlist. |
 | `API_HOST` / `API_PORT` | `127.0.0.1` / `8000` | Bind settings. |
+| `FOTOS_DIR` | `/fotos` | Directory scanned by `POST /api/imagenes/cargar`. |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model name. |
+| `MAX_THREADS` | `1` | Soft cap for `/api/procesamiento/start`; hard cap is 16. |
+| `STALE_PROCESSING_MINUTES` | `10` | Threshold for resetting orphaned `Procesando` rows on startup. |
+| `GCP_PROJECT` | _(empty — derived from creds)_ | Vertex AI project ID. |
+| `GCP_LOCATION` | `us-central1` | Vertex AI location. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | `contadores-api/credentials/google-credentials.json` | GCP service-account JSON. |
 
 The lifespan creates tables via `Base.metadata.create_all()` and bootstraps the admin user if missing (idempotent across restarts).
 
@@ -102,6 +109,68 @@ Returns `list[UserPublic]`. 401 if no token, 403 if not admin.
 Headers: `Authorization: Bearer <admin-token>`.
 Body: `{ "email", "name", "role": "admin" | "contador", "password" (min 8) }`.
 Returns 201 with `{ id, email, name, role }`. 409 on duplicate email.
+
+## Procesamiento (Gemini batch)
+
+The same process serves a manual image-processing slice. Scan a directory of images, tweak the prompt, start a worker pool, poll the status, inspect results. No auth required on these endpoints (internal tooling).
+
+### `GET /api/config/prompt`
+
+Returns 200 with `{ id, prompt_texto, actualizado_en }`. If no prompt is set, both fields are `null`.
+
+### `POST /api/config/prompt`
+
+Body: `{ "prompt_texto": "..." }`. Upserts the single config row and returns 200 with the updated row.
+
+### `POST /api/imagenes/cargar`
+
+Scans `FOTOS_DIR` for files with extension `{.jpg, .jpeg, .png, .webp}` (case-insensitive) and INSERTs new pending rows. Duplicates are skipped via the `ruta_archivo` UNIQUE constraint.
+
+Returns 200: `{ scanned, inserted, skipped }`.
+
+### `GET /api/imagenes`
+
+Returns 200: `{ imagenes: [...] }` ordered by `id ASC`. Each item: `{ id, ruta_archivo, estado, resultado, tiempo_procesamiento, error_mensaje, fecha_creacion }`.
+
+### `POST /api/procesamiento/start?threads=N`
+
+`threads` ∈ [1, 16], default 1.
+
+- 200 `{ "status": "running", "threads": N }` — pool spawned.
+- 200 `{ "status": "already_running", "threads": N }` — same N, no second pool.
+- 409 `{ "detail": { "status": "running", "threads": <current> } }` — different N.
+- 422 — Pydantic validation when `N` is outside [1, 16].
+
+### `POST /api/procesamiento/stop`
+
+Sets the stop flag; in-flight workers finish their current image and exit. Idempotent — safe to call when not running. Returns 200 `{ "status": "stopped" }`.
+
+### `GET /api/procesamiento/status`
+
+Returns 200: `{ running, threads, queue_size, completed, error, procesando }`. Counts derived from current table state.
+
+### Manual smoke flow
+
+```bash
+# 1. Set prompt
+curl -X POST http://localhost:8000/api/config/prompt \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt_texto":"describe the meter reading"}'
+
+# 2. Scan /fotos
+curl -X POST http://localhost:8000/api/imagenes/cargar
+# {"scanned":N,"inserted":N,"skipped":0}
+
+# 3. Start worker pool
+curl -X POST 'http://localhost:8000/api/procesamiento/start?threads=2'
+# {"status":"running","threads":2}
+
+# 4. Poll
+curl http://localhost:8000/api/procesamiento/status
+
+# 5. Stop
+curl -X POST http://localhost:8000/api/procesamiento/stop
+```
 
 ## Notes
 
